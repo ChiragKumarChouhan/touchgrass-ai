@@ -1,62 +1,107 @@
-# TouchGrass AI 🌿
+# TouchGrass AI
 
-A small full-stack web app that turns a user's available time, interests, and preferred difficulty into a practical outdoor mission. It uses an open-weight Gemma model served locally by Ollama.
+TouchGrass AI is a full-stack web application that turns your available time, interests, and preferred difficulty into a practical outdoor mission. It uses the Gemma 3 1B open-weight language model through Ollama to generate personalized activity ideas.
 
-## Stack
-- React + Vite frontend
-- Express backend
-- Gemma 3 1B via local Ollama API
-- Local browser storage for completed mission count and minutes (no account required)
+The goal is simple: spend less time sitting indoors and more time exploring the world outside.
 
-## Requirements
-- Node.js 20+
+##  Features
+
+- **AI-generated missions:** Generate outdoor activities based on your preferences.
+- **Flexible duration:** Choose how much time you have available.
+- **Interest-based activities:** Get suggestions based on the type of activity you prefer.
+- **Difficulty selection:** Choose a difficulty level that suits you.
+- **Mission checklist:** Complete the steps of your generated mission.
+- **Progress tracking:** Track completed missions and time spent through browser storage.
+- **No account required:** Your basic progress is saved locally in your browser.
+- **Locally hosted AI:** Generate missions using Gemma through Ollama running on your computer.
+
+##  Tech Stack
+
+| Technology | Purpose |
+|---|---|
+| React | Frontend user interface |
+| Vite | Frontend development server and build tool |
+| Tailwind CSS | Styling and responsive design |
+| Node.js | JavaScript runtime |
+| Express.js | Backend API |
+| Gemma 3 1B | AI mission generation |
+| Ollama | Runs the language model locally |
+| Browser localStorage | Stores basic user progress |
+
+##  Requirements
+
+Before running the project, make sure you have:
+
+- Node.js 20 or later
+- npm
 - Ollama installed
-- Enough RAM to run the selected model
+- Enough available RAM to run the selected model
 
-## 1. Start the open-weight model
-Install Ollama from https://ollama.com, then in a terminal run:
+##  Getting Started
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/YOUR_USERNAME/touchgrass-ai.git
+cd touchgrass-ai
+```
+
+Replace `YOUR_USERNAME` with your GitHub username.
+
+### 2. Install Ollama and download Gemma
+
+Download Ollama from [https://ollama.com](https://ollama.com).
+
+Open a terminal and run:
 
 ```bash
 ollama pull gemma3:1b
+```
+
+To verify that the model works, run:
+
+```bash
 ollama run gemma3:1b
 ```
 
-You can exit the interactive chat after confirming the model starts. Ollama normally serves its API at `http://localhost:11434`.
+After confirming that the model responds, exit the interactive chat.
 
-## 2. Install dependencies
-From the project root:
+Ollama normally exposes its local API at:
+
+`http://localhost:11434`
+
+Keep Ollama running while using the application.
+
+### 3. Install project dependencies
+
+Open a terminal in the project root and run:
 
 ```bash
 npm install
 npm run install:all
 ```
 
-## 3. Start the app
-From the project root:
+The first command installs the root dependencies. The second installs dependencies for the frontend and backend.
+
+### 4. Start the application
+
+From the project root, run:
 
 ```bash
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal, usually http://localhost:5173.
+Open the frontend URL displayed in the terminal. It will usually be:
 
-The backend runs on http://localhost:5000. The frontend calls it through `/api` via the Vite proxy.
+`http://localhost:5173`
 
-## How it works
-1. The user chooses available time, activity interest, and difficulty.
-2. React sends these preferences to the Express API.
-3. Express calls the locally running Gemma model through Ollama.
-4. The response is parsed and displayed as a mission.
-5. The user can mark the mission complete. Basic progress is saved in that browser.
+The Express backend normally runs at:
 
-## Troubleshooting
-- **“Could not connect to Ollama”**: open Ollama and make sure it is running, then try `ollama run gemma3:1b`.
-- **Model not found**: run `ollama pull gemma3:1b`.
-- **Port 5000 busy**: change `PORT` in `server/.env` (copy `.env.example` first) and update the Vite proxy in `client/vite.config.js`.
-- **No map or verified local recommendations**: this starter creates activity ideas, not navigation directions. Always choose a familiar, public, safe outdoor location and check local conditions yourself.
+`http://localhost:5000`
 
-## Before submitting to a challenge
-- Test the app outdoors and include honest notes about what worked and what did not.
-- Add your own screenshots/demo video.
-- Push this project to your GitHub repository.
-- In the DEV.to post, describe the actual model and setup you used. Do not claim offline phone inference: this starter runs Gemma locally on the computer hosting Ollama.
+The frontend communicates with the backend through `/api` using the Vite development proxy.
+
+##  How It Works
+
+1. The user selects their available time, activity interest, and preferred difficulty.
+2. The React frontend sends these preferences to
