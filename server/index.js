@@ -8,7 +8,7 @@ const app = express();
 
 const PORT = Number(process.env.PORT || 5000);
 const OLLAMA_URL = (process.env.OLLAMA_URL || "http://localhost:11434").replace(
-  /\/$/,
+  /\/+$/,
   "",
 );
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:1b";
@@ -21,13 +21,13 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     model: OLLAMA_MODEL,
+    ollamaUrl: OLLAMA_URL,
   });
 });
 
 // Safely handle text returned by the model
 function safeString(value, fallback, maxLength = 200) {
   if (typeof value !== "string") return fallback;
-
   return value.trim().slice(0, maxLength) || fallback;
 }
 
@@ -42,59 +42,66 @@ function cleanStep(step) {
     .trim();
 }
 
-// Validate and organize the model's response
+// Fallback mission if the model response cannot be parsed
+function fallbackMission(preferences) {
+  return {
+    title: "Your Outdoor Reset",
+    duration: `${preferences.minutes} minutes`,
+    intro: "Take a break from your screen and enjoy a little time outdoors.",
+    steps: [
+      "Choose a familiar, public outdoor place.",
+      "Spend a few minutes noticing the sounds, colors, plants, or sky.",
+      "Walk at a comfortable pace and enjoy your surroundings.",
+    ],
+    safetyTip:
+      "Choose a familiar public place, check local conditions, and stay aware of your surroundings.",
+    reflection: "What was one thing you noticed outside?",
+  };
+}
+
+// Validate and organize the model response
 function parseModelResponse(raw, preferences) {
-  const cleaned = String(raw || "")
-    .replace(/```(?:json)?/gi, "")
-    .replace(/```/g, "")
-    .trim();
+  try {
+    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
 
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
+    if (!data || typeof data !== "object") {
+      return fallbackMission(preferences);
+    }
 
-  if (start >= 0 && end > start) {
-    try {
-      const data = JSON.parse(cleaned.slice(start, end + 1));
+    const steps = [];
+    let safetyTip = safeString(
+      data.safetyTip,
+      "Choose a familiar public place and watch your footing.",
+      240,
+    );
 
-      // Clean activity steps and remove misplaced safety/reflection labels
-      const rawSteps = Array.isArray(data.steps) ? data.steps : [];
+    let reflection = safeString(
+      data.reflection,
+      "What did you notice outside that you usually miss?",
+      180,
+    );
 
-      let safetyTip = safeString(
-        data.safetyTip,
-        "Choose a familiar public place and stay aware of your surroundings.",
-        240,
-      );
-
-      let reflection = safeString(
-        data.reflection,
-        "What did you notice outside that you usually miss?",
-        180,
-      );
-
-      const steps = [];
-
-      for (const item of rawSteps) {
+    if (Array.isArray(data.steps)) {
+      for (const item of data.steps) {
         if (typeof item !== "string") continue;
 
         const original = item.trim();
 
-        // Recover safety advice if the model placed it in the steps array
         const safetyMatch = original.match(
           /^(?:safety\s*tip|safety\s*reminder|safetytip)\s*:\s*(.+)$/i,
         );
 
         if (safetyMatch) {
-          safetyTip = safetyMatch[1].trim();
+          safetyTip = safetyMatch[1].trim().slice(0, 240);
           continue;
         }
 
-        // Recover reflection questions if placed in the steps array
         const reflectionMatch = original.match(
           /^(?:reflection|reflection\s*question)\s*:\s*(.+)$/i,
         );
 
         if (reflectionMatch) {
-          reflection = reflectionMatch[1].trim();
+          reflection = reflectionMatch[1].trim().slice(0, 180);
           continue;
         }
 
@@ -104,46 +111,73 @@ function parseModelResponse(raw, preferences) {
           step &&
           !/^safety\s*tip\s*:/i.test(step) &&
           !/^safety\s*reminder\s*:/i.test(step) &&
+          !/^safetytip\s*:/i.test(step) &&
           !/^reflection(?:\s*question)?\s*:/i.test(step)
         ) {
-          steps.push(step);
+          steps.push(step.slice(0, 200));
         }
       }
-
-      if (steps.length > 0) {
-        return {
-          title: safeString(data.title, "Your outdoor mission", 80),
-          duration: `${preferences.minutes} minutes`,
-          intro: safeString(
-            data.intro,
-            "A simple mission to help you spend time outdoors.",
-            240,
-          ),
-          steps: steps.slice(0, 5),
-          safetyTip,
-          reflection,
-        };
-      }
-    } catch {
-      // Use the safe fallback below if the model returns invalid JSON.
     }
-  }
 
-  // Fallback when the model response cannot be parsed
-  return {
-    title: "Your outdoor mission",
-    duration: `${preferences.minutes} minutes`,
-    intro: "Take a short break outdoors and notice what is around you.",
-    steps: [
-      "Choose a familiar, public outdoor place.",
-      "Spend a few minutes noticing sounds, colors, plants, or the sky.",
-      "Walk at a comfortable pace and return safely.",
-    ],
-    safetyTip:
-      "This is an AI-generated suggestion, not verified local guidance. Check weather and local conditions.",
-    reflection: "What was one thing you noticed outside?",
-  };
+    if (steps.length === 0) {
+      return fallbackMission(preferences);
+    }
+
+    return {
+      title: safeString(data.title, "Your Outdoor Mission", 80),
+      duration: `${preferences.minutes} minutes`,
+      intro: safeString(
+        data.intro,
+        "A simple mission to help you spend time outdoors.",
+        240,
+      ),
+      steps: steps.slice(0, 5),
+      safetyTip,
+      reflection,
+    };
+  } catch (error) {
+    console.error("Could not parse Gemma response:", error.message);
+    return fallbackMission(preferences);
+  }
 }
+
+// Check whether Ollama is reachable
+app.get("/api/ollama-health", async (_req, res) => {
+  try {
+    const response = await fetch(`${OLLAMA_URL}/api/tags`, {
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({
+        ok: false,
+        error: "Ollama returned an unsuccessful response.",
+      });
+    }
+
+    const data = await response.json();
+    const models = Array.isArray(data.models) ? data.models : [];
+
+    return res.json({
+      ok: true,
+      modelConfigured: OLLAMA_MODEL,
+      modelInstalled: models.some(
+        (model) =>
+          model.name === OLLAMA_MODEL ||
+          model.name?.startsWith(`${OLLAMA_MODEL}:`),
+      ),
+      models: models.map((model) => model.name),
+    });
+  } catch (error) {
+    console.error("Ollama health check failed:", error.message);
+
+    return res.status(503).json({
+      ok: false,
+      error: "Cannot connect to Ollama.",
+      details: error.message,
+    });
+  }
+});
 
 // Generate an outdoor mission
 app.post("/api/missions", async (req, res) => {
@@ -163,52 +197,47 @@ app.post("/api/missions", async (req, res) => {
   const prompt = `
 You are TouchGrass AI, a practical outdoor activity planner.
 
-Create ONE safe, low-cost outdoor mission that encourages the user
-to leave their screen and spend time in the real world.
+Create one safe, low-cost outdoor mission.
 
 USER PREFERENCES:
 - Available time: ${preferences.minutes} minutes
 - Interest: ${preferences.interest}
 - Difficulty: ${preferences.difficulty}
 
-STRICT RULES:
-1. Return ONLY valid JSON. Do not include Markdown or code fences.
-2. Return exactly these five keys:
-   title, intro, steps, safetyTip, reflection.
-3. The steps value must be an array of 3 to 5 short strings.
-4. Every step must describe an actionable outdoor activity.
-5. NEVER put safety advice or reflection questions in the steps array.
-6. NEVER write labels such as "Step 1:", "SafetyTip:", or
-   "Reflection:" inside any step.
-7. Put all safety advice ONLY in the safetyTip field.
-8. Put one reflection question ONLY in the reflection field.
-9. Do not repeat the safety tip or reflection in other fields.
-10. Keep the mission achievable within the available time.
-11. Use friendly, simple English.
-12. Suggest public, familiar outdoor places.
-13. Do not invent nearby locations, weather, opening hours, or routes.
-14. Never suggest trespassing, touching unknown plants,
-    approaching wildlife, or doing anything dangerous.
-15. Make the mission specific to the user's selected interest.
+RULES:
+1. Return only valid JSON, with no Markdown or code fences.
+2. Include exactly these keys: title, intro, steps, safetyTip, reflection.
+3. The steps field must contain 3 to 5 short, actionable strings.
+4. Keep the mission achievable within the available time.
+5. Never put safety advice or reflection questions in steps.
+6. Suggest familiar, public outdoor places.
+7. Do not invent nearby locations, weather, opening hours, or routes.
+8. Never suggest trespassing, touching unknown plants, approaching wildlife, or dangerous activities.
+9. Use friendly, simple English.
+10. Make the mission specific to the selected interest.
+11. Put safety advice only in safetyTip.
+12. Put one reflection question only in reflection.
 
-REQUIRED JSON STRUCTURE:
+Return JSON in this structure:
 {
   "title": "A short, creative mission title",
-  "intro": "A friendly introduction in one or two sentences.",
+  "intro": "A friendly introduction.",
   "steps": [
     "Choose a suitable public outdoor place.",
     "Observe something interesting around you.",
     "Spend a few minutes enjoying the activity."
   ],
   "safetyTip": "Choose a familiar public place and watch your footing.",
-  "reflection": "What did you notice outside that you usually miss?"
+  "reflection": "What did you notice outside?"
 }
-
-The examples above show the structure only. Create a NEW mission
-based on the user's preferences. Return valid JSON only.
 `;
 
   try {
+    console.log("Generating mission with Ollama:", {
+      model: OLLAMA_MODEL,
+      preferences,
+    });
+
     const response = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: "POST",
       headers: {
@@ -229,6 +258,8 @@ based on the user's preferences. Return valid JSON only.
     if (!response.ok) {
       const details = await response.text();
 
+      console.error("Ollama returned an error:", details);
+
       return res.status(502).json({
         error: "The local AI model could not generate a mission.",
         details: details.slice(0, 300),
@@ -238,7 +269,16 @@ based on the user's preferences. Return valid JSON only.
 
     const result = await response.json();
 
-    const mission = parseModelResponse(result.response || "", preferences);
+    if (typeof result.response !== "string" || !result.response.trim()) {
+      console.error("Ollama returned an empty response:", result);
+
+      return res.status(502).json({
+        error: "Ollama returned an empty response.",
+        hint: "Try generating the mission again.",
+      });
+    }
+
+    const mission = parseModelResponse(result.response, preferences);
 
     return res.json({
       ok: true,
@@ -247,20 +287,30 @@ based on the user's preferences. Return valid JSON only.
       mission,
     });
   } catch (error) {
-    const isTimeout = error?.name === "TimeoutError";
+    console.error("Mission generation failed:", error);
 
-    return res.status(503).json({
+    const isTimeout =
+      error.name === "TimeoutError" || error.name === "AbortError";
+
+    return res.status(isTimeout ? 504 : 503).json({
       error: isTimeout
         ? "The AI model took too long to respond."
         : "Could not connect to Ollama.",
-      hint: `Start Ollama and make sure "${OLLAMA_MODEL}" is installed.`,
-      details:
-        "This application uses a model running locally on the computer hosting the backend.",
+      details: error.message,
+      hint: `Check that Ollama is running at ${OLLAMA_URL} and "${OLLAMA_MODEL}" is installed.`,
     });
   }
 });
 
+// Handle unknown API routes
+app.use("/api", (_req, res) => {
+  res.status(404).json({
+    error: "API route not found.",
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`TouchGrass AI API running at http://localhost:${PORT}`);
+  console.log(`Ollama URL: ${OLLAMA_URL}`);
   console.log(`Ollama model: ${OLLAMA_MODEL}`);
 });

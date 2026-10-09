@@ -105,3 +105,6 @@ The frontend communicates with the backend through `/api` using the Vite develop
 
 1. The user selects their available time, activity interest, and preferred difficulty.
 2. The React frontend sends these preferences to
+## Demo Screenshot
+
+![TouchGrass AI Demo](screenshots/Screenshot%202026-10-09%20151715.png)
